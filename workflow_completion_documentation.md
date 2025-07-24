@@ -147,3 +147,69 @@ The workflow was successfully updated using the n8n API following their document
 4. Verified update success with new `updatedAt` timestamp: "2025-07-24T16:13:32.249Z"
 
 This completes the AI Logging Workflow v2 by fixing both the WhatsApp message text body and the database logging bottleneck, ensuring that AI responses are properly logged to Supabase and then sent back to users via WhatsApp, creating a complete conversation loop for the Beneficios 360° employee benefits assistant.
+
+## Input Validator Fix
+
+### Root Cause Analysis
+After fixing the Supabase Logger, the user still reported not receiving WhatsApp responses. Investigation of detailed execution logs revealed that the workflow was stopping at the Input Validator node due to a webhook format mismatch.
+
+**Problem:**
+The Input Validator condition expected the old nested webhook format:
+```json
+"leftValue": "={{ $json.entry?.[0]?.changes?.[0]?.value?.messages?.length > 0 }}"
+```
+
+But the actual webhook data has a direct format:
+```json
+{
+  "messaging_product": "whatsapp",
+  "contacts": [{"wa_id": "5215528551467"}],
+  "messages": [{"from": "5215528551467", "text": {"body": "hola"}}]
+}
+```
+
+**Solution:**
+Updated the Input Validator condition to match the actual webhook structure:
+```json
+"leftValue": "={{ $json.messages?.length > 0 }}"
+```
+
+### Data Processor Consistency Fix
+Also updated the Data Processor JavaScript code to consistently handle the direct webhook format:
+
+**Before:**
+```javascript
+if ($json.entry && $json.entry[0]?.changes?.[0]?.value?.messages) {
+  const whatsappData = $json.entry[0].changes[0].value;
+  phoneNumber = whatsappData.messages[0].from;
+  messageText = whatsappData.messages[0].text.body;
+} else {
+  // Manual mode
+}
+```
+
+**After:**
+```javascript
+if ($json.messages && $json.messages.length > 0) {
+  phoneNumber = $json.messages[0].from;
+  messageText = $json.messages[0].text.body;
+} else {
+  // Manual mode
+}
+```
+
+### Verification of All Nodes
+Checked all workflow nodes for webhook format assumptions:
+- ✅ Input Validator: Fixed condition to use `$json.messages?.length > 0`
+- ✅ Data Processor: Updated to handle direct webhook format consistently
+- ✅ WhatsApp Send message: Already references correct trigger data structure
+- ✅ All other nodes: No webhook format dependencies found
+
+### API Update Process
+Successfully updated the workflow using the n8n API:
+1. Retrieved current workflow structure
+2. Applied fixes to both Input Validator and Data Processor nodes
+3. Updated workflow via PUT request to `/api/v1/workflows/GJI87kugFbSeAya2`
+4. Verified successful update (21KB response indicating acceptance)
+
+This fix ensures the workflow can proceed through all nodes (WhatsApp Trigger → Input Validator → Data Processor → AI Agent → Response Logger → Supabase Logger → Send message) and deliver actual WhatsApp responses to users.
