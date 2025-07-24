@@ -1,0 +1,16 @@
+{
+  "operation": "create",
+  "tableId": "conversation_logs",
+  "columns": {
+    "session_id": "={{ $('Response Logger').item.json.log_data.session_id }}",
+    "client_phone": "={{ $('Response Logger').item.json.log_data.client_phone }}",
+    "client_name": "={{ $('Response Logger').item.json.log_data.client_name }}",
+    "user_messages": "={{ JSON.stringify($('Response Logger').item.json.log_data.user_messages) }}",
+    "ai_responses": "={{ JSON.stringify($('Response Logger').item.json.log_data.ai_responses) }}",
+    "processing_time_ms": "={{ $('Response Logger').item.json.log_data.processing_time_ms }}",
+    "client_rfc": "={{ $('Response Logger').item.json.log_data.client_rfc }}",
+    "detected_service_name": "={{ $('Response Logger').item.json.log_data.detected_service_name }}",
+    "escalated": "={{ $('Response Logger').item.json.log_data.escalated }}",
+    "last_interaction_at": "={{ $('Response Logger').item.json.log_data.last_interaction_at }}"
+  }
+}
