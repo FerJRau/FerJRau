@@ -1,0 +1,7 @@
+{
+  "operation": "send",
+  "phoneNumberId": "656120877588471",
+  "recipientPhoneNumber": "={{ $('WhatsApp Trigger').item.json.contacts[0].wa_id.replace(/^521/, '52') }}",
+  "message": "={{ $('Response Logger').item.json.ai_output }}",
+  "additionalFields": {}
+}
