@@ -141,17 +141,21 @@ def extract_contact_name(file_name):
     return name
 
 
-def phone_from_chat_id(chat_id):
-    """Convert scientific-notation chat_id back to a phone string."""
-    try:
-        return str(int(float(chat_id)))
-    except (ValueError, OverflowError):
-        return chat_id
+def phone_from_file_name(file_name):
+    """Extract the full phone number from the file_name field.
+
+    file_name is typically like '+5215554085310.txt'. We strip the
+    extension and leading '+' to get the accurate phone number.
+    """
+    phone = file_name.replace(".txt", "").strip()
+    if phone.startswith("+"):
+        phone = phone[1:]
+    return phone
 
 
 def format_datetime(dt):
     """Format a datetime as YYYY-MM-DD H:MM (no leading zero on hour)."""
-    return dt.strftime("%Y-%m-%d %-H:%M")
+    return f"{dt.year}-{dt.month:02d}-{dt.day:02d} {dt.hour}:{dt.minute:02d}"
 
 
 def build_markdown(conversations, business_name, title):
@@ -230,7 +234,7 @@ def _write_conversation(lines, chat_id, messages, business_name):
     """Append a single conversation block to the lines list."""
     file_name = messages[0].get("file_name", "")
     contact_name = extract_contact_name(file_name)
-    phone = phone_from_chat_id(chat_id)
+    phone = phone_from_file_name(file_name)
 
     first_dt = messages[0]["_datetime"]
     last_dt = messages[-1]["_datetime"]
