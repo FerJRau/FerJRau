@@ -125,7 +125,7 @@ def write_csv(rows_by_chat, output_path):
         return 0
 
     with open(output_path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=EXPECTED_COLUMNS)
+        writer = csv.DictWriter(fh, fieldnames=EXPECTED_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(all_rows)
 
