@@ -474,7 +474,9 @@ function fixName(name) {
   const trimmed = name.trim();
   const upperTrimmed = trimmed.toUpperCase();
   if (WORD_DICTIONARY[upperTrimmed]) {
-    return applyCasing(WORD_DICTIONARY[upperTrimmed], trimmed);
+    const leadingWS = name.match(/^\s*/)[0];
+    const trailingWS = name.match(/\s*$/)[0];
+    return leadingWS + applyCasing(WORD_DICTIONARY[upperTrimmed], trimmed) + trailingWS;
   }
 
   // Split into tokens (words + whitespace)
@@ -518,11 +520,9 @@ function applyCasing(replacement, original) {
   if (original === original.toLowerCase()) {
     return replacement.toLowerCase();
   }
-  // Title Case (first letter upper, rest lower)
-  if (
-    original[0] === original[0].toUpperCase() &&
-    original.slice(1) === original.slice(1).toLowerCase()
-  ) {
+  // Mixed case: first alpha char is uppercase → apply per-word Title Case
+  const firstAlpha = original.match(/[a-zA-Z]/);
+  if (firstAlpha && firstAlpha[0] === firstAlpha[0].toUpperCase()) {
     return replacement.replace(/[^\s-]+/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
   }
 
