@@ -149,6 +149,7 @@ const WORD_DICTIONARY = {
   "D?BBADIE": "DÁBBADIE",
   "D?NOVAN": "DÓNOVAN",
   "D?VALOO": "DÁVALOS",
+  "D?VALOS": "DÁVALOS",
   "D?VILA": "DÁVILA",
   "DAIR?N": "DAIRÓN",
   "DAR?O": "DARÍO",
