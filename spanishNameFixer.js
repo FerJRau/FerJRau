@@ -523,7 +523,7 @@ function applyCasing(replacement, original) {
   // Mixed case: first alpha char is uppercase → apply per-word Title Case
   const firstAlpha = original.match(/[a-zA-Z]/);
   if (firstAlpha && firstAlpha[0] === firstAlpha[0].toUpperCase()) {
-    return replacement.replace(/[^\s-]+/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
+    return replacement.replace(/[^\s\-']+/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
   }
 
   // Default: return replacement as-is
