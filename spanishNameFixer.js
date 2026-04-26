@@ -181,7 +181,7 @@ const WORD_DICTIONARY = {
   "F?TIMA": "FÁTIMA",
   "FABI?N": "FABIÁN",
   "FANDI?O": "FANDIÑO",
-  "FAR?AS.": "FARÍAS",
+  "FAR?AS": "FARÍAS",
   "FELIP?": "FELIPÉ",
   "FERN?NDEZ": "FERNÁNDEZ",
   "FILEM?N": "FILEMÓN",
@@ -218,7 +218,7 @@ const WORD_DICTIONARY = {
   "GUTIERREZ?YA?EZ": "GUTIÉRREZ-YAÑEZ",
   "GUZM?N": "GUZMÁN",
   "H?CTOR": "HÉCTOR",
-  "HERIR?.": "HERIRÁ",
+  "HERIR?": "HERIRÁ",
   "HERN?NDEZ": "HERNÁNDEZ",
   "HERN?NDEZ?SANQUILLI": "HERNÁNDEZ-SANQUILLI",
   "HUITR?N": "HUITRÓN",
@@ -523,7 +523,7 @@ function applyCasing(replacement, original) {
     original[0] === original[0].toUpperCase() &&
     original.slice(1) === original.slice(1).toLowerCase()
   ) {
-    return replacement[0].toUpperCase() + replacement.slice(1).toLowerCase();
+    return replacement.replace(/[^\s-]+/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
   }
 
   // Default: return replacement as-is
