@@ -512,16 +512,19 @@ function fixName(name) {
 function applyCasing(replacement, original) {
   if (!original || !replacement) return replacement;
 
+  // Strip ? for case detection (? is caseless and skews checks)
+  const alpha = original.replace(/\?/g, '');
+
   // All uppercase
-  if (original === original.toUpperCase()) {
+  if (alpha.length > 0 && alpha === alpha.toUpperCase()) {
     return replacement.toUpperCase();
   }
   // All lowercase
-  if (original === original.toLowerCase()) {
+  if (alpha.length > 0 && alpha === alpha.toLowerCase()) {
     return replacement.toLowerCase();
   }
   // Mixed case: first alpha char is uppercase → apply per-word Title Case
-  const firstAlpha = original.match(/[a-zA-Z]/);
+  const firstAlpha = alpha.match(/[a-zA-Z]/);
   if (firstAlpha && firstAlpha[0] === firstAlpha[0].toUpperCase()) {
     return replacement.replace(/[^\s\-']+/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
   }
