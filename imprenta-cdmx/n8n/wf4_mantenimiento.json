@@ -1,0 +1,369 @@
+{
+  "name": "IMPCDMX WF4 — Mantenimiento Preventivo (recordatorios + escalamiento)",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "id": "b4000000-0000-4000-8000-000000000001",
+      "name": "Cada Hora",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "maintenance_tasks",
+        "returnAll": true,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "active",
+              "condition": "eq",
+              "keyValue": "true"
+            }
+          ]
+        }
+      },
+      "id": "b4000000-0000-4000-8000-000000000002",
+      "name": "Get Tareas Activas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "maintenance_logs",
+        "returnAll": true
+      },
+      "id": "b4000000-0000-4000-8000-000000000003",
+      "name": "Get Logs",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide qué recordatorios crear y qué escalar.\n// Soporta cron simplificado: 'min hora * * diasem' (ej. '0 7 * * *' diario 7am, '0 7 * * 1' lunes 7am)\nconst tasks = $('Get Tareas Activas').all().map(i => i.json).filter(t => t.id);\nconst logs = $input.all().map(i => i.json).filter(l => l.id);\nconst now = new Date();\n\nfunction cronMatchesThisHour(expr) {\n  const parts = String(expr || '').trim().split(/\\s+/);\n  if (parts.length < 5) return false;\n  const [, hour, , , dow] = parts;\n  const h = now.getUTCHours();\n  const d = now.getUTCDay();\n  const hourOk = hour === '*' || hour.split(',').some(x => parseInt(x, 10) === h);\n  const dowOk = dow === '*' || dow.split(',').some(x => parseInt(x, 10) === d);\n  return hourOk && dowOk;\n}\n\nconst reminders = [];\nconst escalations = [];\n\nfor (const t of tasks) {\n  const tLogs = logs.filter(l => l.task_id === t.id);\n\n  // 1. ¿Toca recordatorio esta hora y no existe log de hoy?\n  if (cronMatchesThisHour(t.cron_expression)) {\n    const today = now.toISOString().slice(0, 10);\n    const already = tLogs.some(l => (l.due_at || '').slice(0, 10) === today);\n    if (!already) {\n      reminders.push({ task_id: t.id, due_at: now.toISOString(), reminded_at: now.toISOString(), _task_name: t.name, _machine_id: t.machine_id });\n    }\n  }\n\n  // 2. ¿Logs recordados, sin confirmar, vencido el plazo de escalamiento?\n  for (const l of tLogs) {\n    if (l.reminded_at && !l.confirmed_at && !l.escalated) {\n      const hours = (now - new Date(l.reminded_at)) / 36e5;\n      if (hours >= (t.escalation_hours || 4)) {\n        escalations.push({ log_id: l.id, task_name: t.name, hours: Math.round(hours) });\n      }\n    }\n  }\n}\n\nreturn [{ json: { reminders, escalations } }];"
+      },
+      "id": "b4000000-0000-4000-8000-000000000004",
+      "name": "Calcular Pendientes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.first().json.reminders.map(r => ({ json: r }));"
+      },
+      "id": "b4000000-0000-4000-8000-000000000005",
+      "name": "Split Recordatorios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "maintenance_logs",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "task_id",
+              "fieldValue": "={{ $json.task_id }}"
+            },
+            {
+              "fieldId": "due_at",
+              "fieldValue": "={{ $json.due_at }}"
+            },
+            {
+              "fieldId": "reminded_at",
+              "fieldValue": "={{ $json.reminded_at }}"
+            }
+          ]
+        }
+      },
+      "id": "b4000000-0000-4000-8000-000000000006",
+      "name": "Crear Log",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        -120
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://REEMPLAZAR-api-wasender/send-message",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: 'REEMPLAZAR_TELEFONO_OPERADOR', text: '🔧 *MANTENIMIENTO* — ' + $('Split Recordatorios').item.json._task_name + '\\nConfirma con *HECHO* al terminar. Si no confirmas, se escala al supervisor.' }) }}",
+        "options": {}
+      },
+      "id": "b4000000-0000-4000-8000-000000000007",
+      "name": "WhatsApp Recordatorio (placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        -120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F0q1m2WF5IHi1cqK",
+          "name": "IMPCDMX WhatsApp (WaSender) — REEMPLAZAR"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.first().json.escalations.map(e => ({ json: e }));"
+      },
+      "id": "b4000000-0000-4000-8000-000000000008",
+      "name": "Split Escalamientos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "maintenance_logs",
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.log_id }}"
+            }
+          ]
+        },
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "escalated",
+              "fieldValue": "true"
+            },
+            {
+              "fieldId": "escalated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "b4000000-0000-4000-8000-000000000009",
+      "name": "Marcar Escalado",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        120
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://REEMPLAZAR-api-wasender/send-message",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: 'REEMPLAZAR_TELEFONO_SUPERVISOR', text: '⚠️ *ESCALAMIENTO* — Mantenimiento \"' + $('Split Escalamientos').item.json.task_name + '\" lleva ' + $('Split Escalamientos').item.json.hours + 'h sin confirmarse.' }) }}",
+        "options": {}
+      },
+      "id": "b4000000-0000-4000-8000-000000000010",
+      "name": "WhatsApp Escalamiento (placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F0q1m2WF5IHi1cqK",
+          "name": "IMPCDMX WhatsApp (WaSender) — REEMPLAZAR"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Mantenimiento preventivo\nCorre cada hora:\n1. Tareas cuyo cron (hora UTC) toca y sin log de hoy → crea log + recordatorio WhatsApp\n2. Logs recordados sin confirmar pasado `escalation_hours` → marca escalado + WhatsApp supervisor\n\nLas tareas se configuran en la tabla `maintenance_tasks` (lavados, rodillos, calibración por máquina).\nConfirmación del operador (HECHO) llegará por el webhook `imprenta/checklist-reply` del WF2.",
+        "height": 280,
+        "width": 420
+      },
+      "id": "b4000000-0000-4000-8000-000000000011",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Cada Hora": {
+      "main": [
+        [
+          {
+            "node": "Get Tareas Activas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tareas Activas": {
+      "main": [
+        [
+          {
+            "node": "Get Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Logs": {
+      "main": [
+        [
+          {
+            "node": "Calcular Pendientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Pendientes": {
+      "main": [
+        [
+          {
+            "node": "Split Recordatorios",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Escalamientos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Recordatorios": {
+      "main": [
+        [
+          {
+            "node": "Crear Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Log": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Recordatorio (placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Escalamientos": {
+      "main": [
+        [
+          {
+            "node": "Marcar Escalado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar Escalado": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Escalamiento (placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

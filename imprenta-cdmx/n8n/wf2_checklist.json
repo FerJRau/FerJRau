@@ -1,0 +1,332 @@
+{
+  "name": "IMPCDMX WF2 — Checklist por Etapa (WhatsApp)",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "imprenta/stage-entered",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Webhook Etapa Iniciada",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "impcdmx-stage-entered"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Llamado por FileMaker (Insert from URL) o manualmente cuando una orden entra a una etapa\nconst body = $input.first().json.body || {};\nif (!body.order_number || !body.stage) {\n  return [{ json: { error: 'order_number y stage son obligatorios', valid: false } }];\n}\nreturn [{ json: {\n  valid: true,\n  order_number: body.order_number,\n  stage: body.stage,\n  machine_code: body.machine_code || null,\n  operator_phone: body.operator_phone || null,\n} }];"
+      },
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "orders",
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "order_number",
+              "condition": "eq",
+              "keyValue": "={{ $json.order_number }}"
+            }
+          ]
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "Get Order",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "checklist_templates",
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "stage",
+              "condition": "eq",
+              "keyValue": "={{ $('Validate Input').first().json.stage }}"
+            },
+            {
+              "keyName": "active",
+              "condition": "eq",
+              "keyValue": "true"
+            }
+          ]
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "Get Checklist Template",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "checklist_template_items",
+        "returnAll": true,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "template_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "Get Template Items",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Construye el mensaje de WhatsApp con el checklist numerado\nconst input = $('Validate Input').first().json;\nconst order = ($('Get Order').first() || { json: {} }).json || {};\nconst template = ($('Get Checklist Template').first() || { json: {} }).json || {};\nconst items = $input.all().map(i => i.json).filter(i => i.prompt).sort((a, b) => a.position - b.position);\n\nconst stageNames = { preprensa: 'Preprensa', planchas: 'Planchas', impresion: 'Impresión', acabado: 'Acabado', empaque: 'Empaque' };\n\nlet text = `📋 *CHECKLIST — ${stageNames[input.stage] || input.stage}*\\n`;\ntext += `Orden: *${input.order_number}*`;\nif (order.customer_name) text += ` (${order.customer_name})`;\nif (input.machine_code) text += `\\nMáquina: ${input.machine_code}`;\ntext += '\\n\\n';\n\nif (items.length === 0) {\n  text += '⚠️ Sin checklist configurado para esta etapa. Avisa al supervisor.';\n} else {\n  items.forEach((it, idx) => {\n    text += `${idx + 1}. ${it.prompt}`;\n    if (it.requires_photo) text += ' 📷 *(manda foto como evidencia)*';\n    text += '\\n';\n  });\n  text += '\\nResponde *OK <número>* al completar cada paso, o *LISTO* al terminar todos.';\n  text += '\\n⛔ La orden NO avanza en sistema hasta confirmar el checklist.';\n}\n\nreturn [{ json: {\n  text,\n  to: input.operator_phone,\n  order_id: order.id || null,\n  template_id: template.id || null,\n  stage: input.stage,\n  has_template: !!template.id,\n  has_order: !!order.id,\n} }];"
+      },
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "name": "Build WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://REEMPLAZAR-api-wasender/send-message",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.to, text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000007",
+      "name": "WhatsApp → Operador (placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "F0q1m2WF5IHi1cqK",
+          "name": "IMPCDMX WhatsApp (WaSender) — REEMPLAZAR"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('Build WhatsApp Message').first().json;\nreturn [{ json: { ok: true, has_template: b.has_template, has_order: b.has_order, preview: b.text } }];"
+      },
+      "id": "b2000000-0000-4000-8000-000000000008",
+      "name": "Respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "imprenta/checklist-reply",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000009",
+      "name": "Webhook Respuesta Operador",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        320
+      ],
+      "webhookId": "impcdmx-checklist-reply"
+    },
+    {
+      "parameters": {
+        "jsCode": "// TODO (siguiente iteración):\n// 1. Identificar checklist_run abierto por teléfono del operador\n// 2. Marcar items confirmados (OK <n>) en checklist_run_items\n// 3. Si el item requiere foto: descargar media de WhatsApp, subir a Supabase Storage,\n//    y verificar con Claude vision usando vision_check_prompt del template\n// 4. Al confirmar todo: marcar run completed, avanzar etapa en orders/order_stages\n//    y (cuando esté la Data API) avanzar el registro en FileMaker\nconst body = $input.first().json.body || {};\nreturn [{ json: { todo: 'procesar respuesta', body } }];"
+      },
+      "id": "b2000000-0000-4000-8000-000000000010",
+      "name": "TODO: Procesar Respuesta + Verificación Visión",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Checklist por etapa\nPOST `/webhook/imprenta/stage-entered`\nBody: `{ order_number, stage, machine_code?, operator_phone? }`\nstage ∈ preprensa | planchas | impresion | acabado | empaque\n\nBusca la plantilla de checklist de la etapa en Supabase y la manda por WhatsApp al operador. La orden no avanza hasta confirmar (anti checkbox-theater: items con foto obligatoria se verifican con Claude vision).\n\n`/webhook/imprenta/checklist-reply` recibirá las respuestas del operador (TODO: integrar con el proveedor de WhatsApp de la imprenta).",
+        "height": 320,
+        "width": 420
+      },
+      "id": "b2000000-0000-4000-8000-000000000011",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -360
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Etapa Iniciada": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Get Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Order": {
+      "main": [
+        [
+          {
+            "node": "Get Checklist Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Checklist Template": {
+      "main": [
+        [
+          {
+            "node": "Get Template Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Template Items": {
+      "main": [
+        [
+          {
+            "node": "Build WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp → Operador (placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp → Operador (placeholder)": {
+      "main": [
+        [
+          {
+            "node": "Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Respuesta Operador": {
+      "main": [
+        [
+          {
+            "node": "TODO: Procesar Respuesta + Verificación Visión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
