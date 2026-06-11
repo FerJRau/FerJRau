@@ -1,0 +1,319 @@
+{
+  "name": "IMPCDMX WF1 — Event Router (JMF / Fiery IQ / PrintOS / Frigate)",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "imprenta/events/jmf",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Webhook JMF (Jeti/Asanti)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -200
+      ],
+      "webhookId": "impcdmx-jmf"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "imprenta/events/fiery",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Webhook Fiery IQ (VUTEk)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "impcdmx-fiery"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "imprenta/events/printos",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Webhook PrintOS (Indigo)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "impcdmx-printos"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "imprenta/events/frigate",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Webhook Frigate (CCTV)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "impcdmx-frigate"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza eventos de las 4 fuentes a un formato común\nconst item = $input.first().json;\nconst body = item.body || {};\nconst path = (item.webhookUrl || '').split('/').pop() || '';\n\nconst sourceMap = { jmf: 'jmf', fiery: 'fiery_iq', printos: 'printos', frigate: 'frigate' };\nconst source = sourceMap[path] || 'manual';\n\n// machine_code: explícito en payload, o por defecto según la fuente\nconst defaultMachine = { jmf: 'jeti-mira', fiery_iq: 'vutek-gs3', printos: 'indigo-5500', frigate: 'acabado' };\nconst machine_code = body.machine_code || defaultMachine[source];\n\n// event_type: normalizar nombres comunes (JMF: Status/Resource; Frigate: review/detección)\nlet event_type = body.event_type || body.type || body.Status || 'unknown';\nevent_type = String(event_type).toLowerCase().replace(/\\s+/g, '_');\n\n// severity heurística: errores/paros se marcan major para que el clasificador IA decida\nlet severity = body.severity || null;\nif (!severity) {\n  if (/error|fail|fault|jam|stop/.test(event_type)) severity = 'major';\n  else if (/pause|warn/.test(event_type)) severity = 'minor';\n  else severity = 'info';\n}\n\n// base del webhook para invocar otros flujos del mismo n8n\nconst base_url = (item.webhookUrl || '').replace(/\\/imprenta\\/events\\/.*$/, '');\n\nreturn [{ json: { machine_code, source, event_type, severity, payload: body, base_url } }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Normalize Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "machines",
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "code",
+              "condition": "eq",
+              "keyValue": "={{ $json.machine_code }}"
+            }
+          ]
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "Get Machine",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        460,
+        100
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ev = $('Normalize Event').first().json;\nconst machine = $input.first().json || {};\nreturn [{ json: {\n  machine_id: machine.id || null,\n  source: ev.source,\n  event_type: ev.event_type,\n  severity: ev.severity,\n  payload: ev.payload,\n} }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Build Event Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "machine_events",
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "Insert machine_event",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        900,
+        100
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "afViDlP7RXmh3xeK",
+          "name": "IMPCDMX Supabase (imprenta-cdmx)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "major|critical",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "¿Severidad alta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Normalize Event').first().json.base_url }}/imprenta/andon",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ machine_code: $('Normalize Event').first().json.machine_code, source: $('Normalize Event').first().json.source, description: 'Evento automático: ' + $('Normalize Event').first().json.event_type, payload: $('Normalize Event').first().json.payload }) }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "name": "Disparar Andon (WF3)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Router de eventos — Imprenta CDMX\nRecibe eventos de las 4 fuentes, los normaliza, los guarda en Supabase (`machine_events`) y dispara el flujo Andon (WF3) cuando la severidad es major/critical.\n\n**Endpoints (POST):**\n- `/webhook/imprenta/events/jmf` — Agfa Jeti vía Asanti (JDF/JMF→HTTP)\n- `/webhook/imprenta/events/fiery` — Fiery IQ / agente en PC de control VUTEk\n- `/webhook/imprenta/events/printos` — HP PrintOS (si Indigo 5500 resulta compatible)\n- `/webhook/imprenta/events/frigate` — Frigate (eventos MQTT→HTTP o api/events)\n\nPayload mínimo: `{ \"machine_code\": \"...\", \"event_type\": \"...\", \"severity\": \"info|minor|major|critical\" }` — todos opcionales, hay defaults por fuente.",
+        "height": 360,
+        "width": 420
+      },
+      "id": "a1000000-0000-4000-8000-000000000011",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -100,
+        -560
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook JMF (Jeti/Asanti)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Fiery IQ (VUTEk)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook PrintOS (Indigo)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Frigate (CCTV)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Event": {
+      "main": [
+        [
+          {
+            "node": "Get Machine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Machine": {
+      "main": [
+        [
+          {
+            "node": "Build Event Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Event Row": {
+      "main": [
+        [
+          {
+            "node": "Insert machine_event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert machine_event": {
+      "main": [
+        [
+          {
+            "node": "¿Severidad alta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Severidad alta?": {
+      "main": [
+        [
+          {
+            "node": "Disparar Andon (WF3)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  }
+}

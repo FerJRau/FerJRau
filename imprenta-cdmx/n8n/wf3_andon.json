@@ -1,0 +1,258 @@
+{
+  "name": "IMPCDMX WF3 — Andon / Paro de Línea (clasificación Claude)",
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "imprenta/andon",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b3000000-0000-4000-8000-000000000001",
+      "name": "Webhook Andon",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "impcdmx-andon"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Entrada: reporte de error (operador por WhatsApp, o evento automático del router WF1)\nconst body = $input.first().json.body || {};\nreturn [{ json: {\n  machine_code: body.machine_code || null,\n  order_number: body.order_number || null,\n  description: body.description || 'Sin descripción',\n  photo_url: body.photo_url || null,\n  reporter_phone: body.reporter_phone || null,\n  source: body.source || 'whatsapp',\n  payload: body.payload || {},\n} }];"
+      },
+      "id": "b3000000-0000-4000-8000-000000000002",
+      "name": "Prepare Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 300, messages: [{ role: 'user', content: 'Eres el clasificador de severidad de una imprenta offset/digital en CDMX. Clasifica el siguiente reporte de producción. Responde SOLO con JSON válido: {\"severity\": \"info|minor|major|critical\", \"reason\": \"...\", \"recommended_action\": \"...\"}. critical = detener la orden y bloquear etapas posteriores (riesgo de desperdicio masivo, daño a máquina o seguridad). major = requiere supervisor pronto. Reporte: máquina=' + ($json.machine_code || 'desconocida') + ', orden=' + ($json.order_number || 'desconocida') + ', descripción=' + $json.description }] }) }}",
+        "options": {}
+      },
+      "id": "b3000000-0000-4000-8000-000000000003",
+      "name": "Claude — Clasificar Severidad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": { "httpHeaderAuth": { "id": "eD15sTl0761Zbzss", "name": "IMPCDMX Anthropic x-api-key — REEMPLAZAR" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsea la respuesta de Claude; si falla, default conservador: major\nconst report = $('Prepare Report').first().json;\nlet severity = 'major';\nlet ai = null;\ntry {\n  const resp = $input.first().json;\n  const text = resp.content && resp.content[0] && resp.content[0].text;\n  if (text) {\n    ai = JSON.parse(text.replace(/```json|```/g, '').trim());\n    if (['info','minor','major','critical'].includes(ai.severity)) severity = ai.severity;\n  }\n} catch (e) { ai = { error: String(e) }; }\n\nreturn [{ json: { ...report, severity, ai_classification: ai } }];"
+      },
+      "id": "b3000000-0000-4000-8000-000000000004",
+      "name": "Parse Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "machines",
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            { "keyName": "code", "condition": "eq", "keyValue": "={{ $json.machine_code }}" }
+          ]
+        }
+      },
+      "id": "b3000000-0000-4000-8000-000000000005",
+      "name": "Get Machine",
+      "alwaysOutputData": true,
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [880, 0],
+      "credentials": { "supabaseApi": { "id": "afViDlP7RXmh3xeK", "name": "IMPCDMX Supabase (imprenta-cdmx)" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "orders",
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            { "keyName": "order_number", "condition": "eq", "keyValue": "={{ $('Parse Classification').first().json.order_number }}" }
+          ]
+        }
+      },
+      "id": "b3000000-0000-4000-8000-000000000006",
+      "name": "Get Order",
+      "alwaysOutputData": true,
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1100, 0],
+      "credentials": { "supabaseApi": { "id": "afViDlP7RXmh3xeK", "name": "IMPCDMX Supabase (imprenta-cdmx)" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Parse Classification').first().json;\nconst machine = ($('Get Machine').first() || { json: {} }).json || {};\nconst order = ($('Get Order').first() || { json: {} }).json || {};\nreturn [{ json: {\n  order_id: order.id || null,\n  machine_id: machine.id || null,\n  severity: c.severity,\n  source: c.source,\n  description: c.description,\n  photo_url: c.photo_url,\n  ai_classification: c.ai_classification,\n  _order_uuid: order.id || null,\n} }];"
+      },
+      "id": "b3000000-0000-4000-8000-000000000007",
+      "name": "Build Hold Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "tableId": "holds",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "order_id", "fieldValue": "={{ $json.order_id }}" },
+            { "fieldId": "machine_id", "fieldValue": "={{ $json.machine_id }}" },
+            { "fieldId": "severity", "fieldValue": "={{ $json.severity }}" },
+            { "fieldId": "source", "fieldValue": "={{ $json.source }}" },
+            { "fieldId": "description", "fieldValue": "={{ $json.description }}" },
+            { "fieldId": "photo_url", "fieldValue": "={{ $json.photo_url }}" },
+            { "fieldId": "ai_classification", "fieldValue": "={{ JSON.stringify($json.ai_classification) }}" }
+          ]
+        }
+      },
+      "id": "b3000000-0000-4000-8000-000000000008",
+      "name": "Insert Hold",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1540, 0],
+      "credentials": { "supabaseApi": { "id": "afViDlP7RXmh3xeK", "name": "IMPCDMX Supabase (imprenta-cdmx)" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Build Hold Row').first().json.severity }}",
+              "rightValue": "critical",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "leftValue": "={{ $('Build Hold Row').first().json._order_uuid }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b3000000-0000-4000-8000-000000000009",
+      "name": "¿Crítico y con orden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1760, 0]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "orders",
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            { "keyName": "id", "condition": "eq", "keyValue": "={{ $('Build Hold Row').first().json._order_uuid }}" }
+          ]
+        },
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "on_hold", "fieldValue": "true" }
+          ]
+        }
+      },
+      "id": "b3000000-0000-4000-8000-000000000010",
+      "name": "Orden ON HOLD",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1980, -120],
+      "credentials": { "supabaseApi": { "id": "afViDlP7RXmh3xeK", "name": "IMPCDMX Supabase (imprenta-cdmx)" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://REEMPLAZAR-api-wasender/send-message",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: 'REEMPLAZAR_TELEFONO_SUPERVISOR', text: '🔴 PARO DE LÍNEA — ' + ($('Parse Classification').first().json.machine_code || 'máquina desconocida') + '\\nOrden: ' + ($('Parse Classification').first().json.order_number || 'N/D') + '\\n' + $('Parse Classification').first().json.description + '\\nSeveridad: ' + $('Build Hold Row').first().json.severity + '\\nResponde LIBERAR <id> para liberar el hold.' }) }}",
+        "options": {}
+      },
+      "id": "b3000000-0000-4000-8000-000000000011",
+      "name": "WhatsApp → Supervisor (placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2200, -120],
+      "credentials": { "httpHeaderAuth": { "id": "F0q1m2WF5IHi1cqK", "name": "IMPCDMX WhatsApp (WaSender) — REEMPLAZAR" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "b3000000-0000-4000-8000-000000000012",
+      "name": "TODO FileMaker: marcar ON HOLD (Data API pendiente)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2420, -120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Build Hold Row').first().json;\nreturn [{ json: { ok: true, severity: c.severity, on_hold: c.severity === 'critical' && !!c._order_uuid } }];"
+      },
+      "id": "b3000000-0000-4000-8000-000000000013",
+      "name": "Respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 140]
+    },
+    {
+      "parameters": {
+        "content": "## Andon / Paro de línea\nPOST `/webhook/imprenta/andon`\nBody: `{ machine_code, order_number?, description, photo_url?, reporter_phone?, source? }`\n\n1. Claude clasifica severidad (fallback: major si la API falla)\n2. Se inserta el hold en Supabase\n3. Si es **critical** y hay orden: orden ON HOLD + WhatsApp al supervisor + (TODO) FileMaker\n\n**Pendientes:** credencial Anthropic real, endpoint/token de WhatsApp de la imprenta, FileMaker Data API.",
+        "height": 300,
+        "width": 400
+      },
+      "id": "b3000000-0000-4000-8000-000000000014",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, -360]
+    }
+  ],
+  "connections": {
+    "Webhook Andon": { "main": [[{ "node": "Prepare Report", "type": "main", "index": 0 }]] },
+    "Prepare Report": { "main": [[{ "node": "Claude — Clasificar Severidad", "type": "main", "index": 0 }]] },
+    "Claude — Clasificar Severidad": { "main": [[{ "node": "Parse Classification", "type": "main", "index": 0 }]] },
+    "Parse Classification": { "main": [[{ "node": "Get Machine", "type": "main", "index": 0 }]] },
+    "Get Machine": { "main": [[{ "node": "Get Order", "type": "main", "index": 0 }]] },
+    "Get Order": { "main": [[{ "node": "Build Hold Row", "type": "main", "index": 0 }]] },
+    "Build Hold Row": { "main": [[{ "node": "Insert Hold", "type": "main", "index": 0 }]] },
+    "Insert Hold": { "main": [[{ "node": "¿Crítico y con orden?", "type": "main", "index": 0 }]] },
+    "¿Crítico y con orden?": { "main": [[{ "node": "Orden ON HOLD", "type": "main", "index": 0 }], [{ "node": "Respuesta", "type": "main", "index": 0 }]] },
+    "Orden ON HOLD": { "main": [[{ "node": "WhatsApp → Supervisor (placeholder)", "type": "main", "index": 0 }]] },
+    "WhatsApp → Supervisor (placeholder)": { "main": [[{ "node": "TODO FileMaker: marcar ON HOLD (Data API pendiente)", "type": "main", "index": 0 }]] },
+    "TODO FileMaker: marcar ON HOLD (Data API pendiente)": { "main": [[{ "node": "Respuesta", "type": "main", "index": 0 }]] }
+  }
+}
