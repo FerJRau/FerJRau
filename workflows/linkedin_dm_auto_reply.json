@@ -74,6 +74,37 @@
     },
     {
       "parameters": {
+        "method": "GET",
+        "url": "=https://api50.unipile.com:18099/api/v1/users/{{ $json.sender_id }}?account_id={{ $json.account_id }}&linkedin_sections=*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "SFudJvgP.XCwN2ycbuARUPp6bKQNfrAj0ab4xGIhC83WI81PH4BU="
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d1a1b2c3-0009-4000-8000-000000000009",
+      "name": "Fetch Sender Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge message data with sender profile\nconst msgData = $('Extract Message Data').first().json;\nconst profile = $input.first().json;\n\nreturn [{\n  json: {\n    // Message fields\n    chat_id: msgData.chat_id,\n    account_id: msgData.account_id,\n    message_text: msgData.message_text,\n    sender_name: msgData.sender_name,\n    sender_id: msgData.sender_id,\n    sender_profile: msgData.sender_profile,\n    timestamp: msgData.timestamp,\n    message_id: msgData.message_id,\n    // Profile fields\n    headline: profile.headline || '',\n    about: profile.about || '',\n    location: profile.location || '',\n    experience: JSON.stringify(profile.experience || []),\n    skills: JSON.stringify(profile.skills || []),\n    connections_count: profile.connections_count || 0,\n    profile_picture_url: profile.profile_picture_url || ''\n  }\n}];"
+      },
+      "id": "d1a1b2c3-0010-4000-8000-000000000010",
+      "name": "Merge Profile Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
         "resource": "row",
         "operation": "insert",
         "dataTableId": {
@@ -90,7 +121,7 @@
       "name": "Log to Table",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
-      "position": [960, 300]
+      "position": [1440, 300]
     },
     {
       "parameters": {
@@ -200,6 +231,28 @@
       ]
     },
     "Extract Message Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch Sender Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Sender Profile": {
+      "main": [
+        [
+          {
+            "node": "Merge Profile Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Profile Data": {
       "main": [
         [
           {
