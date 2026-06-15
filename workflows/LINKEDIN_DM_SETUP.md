@@ -15,9 +15,10 @@ Unipile Webhook → n8n Webhook → Filter (incoming only) → Extract Data → 
 | 1 | **Webhook - Unipile Events** | Receives `message_received` events from Unipile |
 | 2 | **Filter - Incoming Messages Only** | Blocks self-sent messages + non-LinkedIn events |
 | 3 | **Extract Message Data** | Parses chat_id, sender info, message text |
-| 4 | **OpenAI - Generate Reply** | Calls GPT-4o-mini to generate a professional response |
-| 5 | **Format Reply** | Extracts AI text and pairs it with the chat_id |
-| 6 | **Unipile - Send Reply** | POSTs the reply back to the LinkedIn chat |
+| 4 | **Build OpenAI Request** | Safely constructs the OpenAI request body as a JS object (avoids JSON escaping issues with special characters in messages) |
+| 5 | **OpenAI - Generate Reply** | Calls GPT-4o-mini to generate a professional response |
+| 6 | **Format Reply** | Extracts AI text and pairs it with the chat_id |
+| 7 | **Unipile - Send Reply** | POSTs the reply back to the LinkedIn chat |
 
 ## Setup Steps
 
